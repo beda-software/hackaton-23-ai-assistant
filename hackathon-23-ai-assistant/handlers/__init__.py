@@ -1,4 +1,3 @@
-import logging
 import os
 import time
 
@@ -13,11 +12,9 @@ from ..utils.fhir import get_fhir_client
 async def convert_handler(request: web.Request):
     questionnaire_id = request.rel_url.query["questionnaire"]
     token = request.headers["Authorization"]
-    logging.error("TOKEN %s", token)
-    fhir_client: AsyncFHIRClient = get_fhir_client()
+    fhir_client: AsyncFHIRClient = get_fhir_client(token)
     questionnaire_reference = fhir_client.reference("Questionnaire", questionnaire_id)
     questionnaire = await questionnaire_reference.to_resource()
-    logging.error("questionnaire %s", questionnaire.serialize())
     openai_client: AsyncOpenAI = request.app["openai_client"]
     reader = await request.multipart()
     audio_content = await reader.next()

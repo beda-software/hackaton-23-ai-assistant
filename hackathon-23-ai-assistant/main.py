@@ -1,3 +1,4 @@
+import aiohttp_cors
 from aiohttp import web
 from openai import AsyncOpenAI
 
@@ -12,6 +13,16 @@ async def on_startup(app: web.Application):
 async def application():
     app = web.Application()
     app.on_startup.append(on_startup)
-    app.router.add_post("/convert", convert_handler)
+    cors = aiohttp_cors.setup(
+        app,
+        defaults={
+            "*": aiohttp_cors.ResourceOptions(
+                allow_credentials=True,
+                expose_headers="*",
+                allow_headers="*",
+            )
+        },
+    )
+    cors.add(app.router.add_post("/convert", convert_handler))
 
     return app
