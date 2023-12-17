@@ -6,16 +6,18 @@ from typing import Any
 from uuid import uuid4
 
 import aiofiles
-from aiohttp import BodyPartReader, web
+from aiohttp import web
 from fhirpy import AsyncFHIRClient
 from openai import AsyncOpenAI
 
 from ..utils import minify_json_string
-from ..utils.fhir import get_fhir_client
+from ..utils.fhir import get_fhir_client, get_now, format_date_time
 
 
 async def convert_handler(request: web.Request):
     questionnaire_id = request.rel_url.query["questionnaire"]
+    patient_id = request.rel_url.query["patient"]
+    encounter_id = request.rel_url.query["encounter"]
     token = request.headers["Authorization"]
     fhir_client: AsyncFHIRClient = get_fhir_client(token)
     questionnaire_reference = fhir_client.reference("Questionnaire", questionnaire_id)
@@ -44,9 +46,11 @@ async def convert_handler(request: web.Request):
             filepath,
             questionnaire,
             questionnaire_response_id,
+            patient_id,
+            encounter_id,
         )
     )
-    return web.HTTPOk()
+    return web.json_response({"questionnaireResponseId": questionnaire_response_id})
 
 
 async def generate_questionnaire_response_draft(
@@ -55,6 +59,8 @@ async def generate_questionnaire_response_draft(
     filepath: str,
     questionnaire: Any,
     questionnaire_response_id: str,
+    patient_id: str,
+    encounter_id: str,
 ):
     logging.error("Backjground task is started")
     logging.error("QuestionnaireResponse.id %s", questionnaire_response_id)
@@ -68,7 +74,12 @@ async def generate_questionnaire_response_draft(
     logging.error("AI assistant create response successfully")
     logging.error("ai_generated_value %s", ai_generated_value)
     await save_valid_resource(
-        fhir_client, ai_generated_value, questionnaire_response_id
+        fhir_client,
+        ai_generated_value,
+        questionnaire_response_id,
+        patient_id,
+        encounter_id,
+        questionnaire["id"],
     )
     logging.error("FHIR QuestionnaireResponse was succesfully created")
 
@@ -86,11 +97,14 @@ async def convert_audio_to_text(client: AsyncOpenAI, filepath: str):
     return transcript
 
 
+# TODO: move assistant init to app init
 async def get_assistant(client: AsyncOpenAI):
     instructions = """You are FHIR expert that accepts Questionnaire resource and the text with test clinical data.
 You should create QuestionnaireResponse resource based on the provided text.
 Your response should be a JSON string.
 If text has no answers to fill out question item, leave it empty.
+Please do not add any comments to JSON data.
+Please do not add subject, encounter, authored attributes to QuestionnaireResponse
 """
 
     assistant_config = {
@@ -111,7 +125,7 @@ If text has no answers to fill out question item, leave it empty.
 
 
 async def get_ai_generated_value(
-    client: AsyncOpenAI, questionnaire: dict, transcription: str
+    client: AsyncOpenAI, questionnaire: Any, transcription: str
 ):
     assistant = await get_assistant(client)
     thread = await client.beta.threads.create()
@@ -119,7 +133,7 @@ async def get_ai_generated_value(
 You should create QuestionnaireResponse resource based on the provided text.
 
 Questionnaire:
-{questionnaire}
+{questionnaire.serialize()}
 
 Text with test clinical data:
 {transcription}
@@ -153,13 +167,25 @@ Text with test clinical data:
 
 
 async def save_valid_resource(
-    client: AsyncFHIRClient, value: str, questionaire_response_id: str
+    client: AsyncFHIRClient,
+    value: str,
+    questionaire_response_id: str,
+    patient_id: str,
+    encounter_id: str,
+    questionnaire_id: str,
 ):
     minified_value = minify_json_string(value)
     resource = client.resource(
         "QuestionnaireResponse",
-        **minified_value,
-        id=questionaire_response_id,
+        **{
+            "item": minified_value["item"],
+            "id": questionaire_response_id,
+            "status": "in-progress",
+            "subject": {"resourceType": "Patient", "id": patient_id},
+            "encounter": {"resourceType": "Encounter", "id": encounter_id},
+            "questionnaire": questionnaire_id,
+            "authored": format_date_time(get_now()),
+        },
     )
     await resource.save()
     return resource
