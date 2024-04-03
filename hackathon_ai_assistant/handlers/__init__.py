@@ -90,10 +90,12 @@ async def convert_audio_to_text(client: AsyncOpenAI, filepath: str):
     transcript = await client.audio.transcriptions.create(
         model="whisper-1", response_format="json", file=audio_file
     )
-    # async with aiofiles.open(filepath, mode="rb") as f:
-    #     audio_content_bytes = await f.read()
-    #     audio_file_object = io.BytesIO(audio_content_bytes)
-    #     logging.error("transcript.text %s", transcript.text)
+    async with aiofiles.open(filepath, mode="rb") as f:
+        import io
+
+        audio_content_bytes = await f.read()
+        audio_file_object = io.BytesIO(audio_content_bytes)
+        logging.error("transcript.text %s", transcript.text)
     return transcript
 
 
