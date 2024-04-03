@@ -10,7 +10,7 @@ async def on_startup(app: web.Application):
     app["openai_client"] = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
 
 
-async def application():
+def application():
     app = web.Application()
     app.on_startup.append(on_startup)
     cors = aiohttp_cors.setup(
